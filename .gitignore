@@ -1,0 +1,62 @@
+# ---------- Secrets ----------
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# ---------- Data (documented in docs/, never committed) ----------
+# Keep the folder itself via a placeholder file
+data/*
+!data/.gitkeep
+!data/README.md
+
+# Local databases and common bulk geospatial/data formats
+*.duckdb
+*.duckdb.wal
+*.parquet
+*.tif
+*.tiff
+*.nc
+*.zip
+*.gz
+*.shp
+*.shx
+*.dbf
+*.prj
+*.gpkg
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# ---------- Testing and linting ----------
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---------- dbt ----------
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+
+# ---------- Dagster ----------
+.dagster/
+dagster_home/
+history/
+storage/
+logs/
+
+# ---------- Jupyter ----------
+.ipynb_checkpoints/
+
+# ---------- Editors and OS ----------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

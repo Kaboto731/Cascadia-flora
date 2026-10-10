@@ -1,3 +1,4 @@
+![CI](https://github.com/Kaboto731/cascadia-flora/actions/workflows/ci.yml/badge.svg)
 # Cascadia Flora
 
 **An open-data engineering and species distribution modeling pipeline for Pacific Northwest trees.**
