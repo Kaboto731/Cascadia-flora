@@ -104,7 +104,7 @@ Species are resolved to GBIF backbone taxon keys by `scripts/build_species_seed.
 ---
 
 ## Architecture
-
+The bronze layer is skipped for MODIS/LAI due to the sheer volume of storing it locally.
 ```mermaid
 flowchart LR
     subgraph Sources
