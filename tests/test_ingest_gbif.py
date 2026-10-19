@@ -28,6 +28,11 @@ def test_predicate_has_geometry():
     assert geo["geometry"] == STUDY_AREA_WKT
 
 
+def _ring(wkt):
+    body = wkt.removeprefix("POLYGON((").removesuffix("))").split(", ")
+    return [tuple(float(v) for v in pair.split()) for pair in body]
+
+
 def test_study_area_polygon_is_closed():
-    coords = STUDY_AREA_WKT.removeprefix("POLYGON((").removesuffix("))").split(", ")
-    assert coords[0] == coords[-1]
+    ring = _ring(STUDY_AREA_WKT)
+    assert ring[0] == ring[-1]
