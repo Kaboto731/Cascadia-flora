@@ -1,0 +1,12 @@
+version: 2
+
+sources:
+  - name: bronze
+    description: Raw, untyped Parquet files written by pipelines/bronze_gbif.py.
+    config:
+      meta:
+        # Relative to the dbt/ folder, where dbt is run from.
+        external_location: "read_parquet('../data/bronze/{name}/*.parquet')"
+    tables:
+      - name: gbif_occurrences
+        description: GBIF SIMPLE_CSV download, all columns as text.

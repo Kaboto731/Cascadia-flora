@@ -1,0 +1,21 @@
+# Run dbt from inside the dbt/ folder: dbt looks for this file in the current directory.
+# Paths are relative to dbt/, so the database lands in <repo>/data/cascadia.duckdb.
+cascadia_flora:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: ../data/cascadia.duckdb
+      threads: 1
+      extensions:
+        - spatial   # ST_Within / ST_Point for the study-area check
+
+    # For CI: same spatial extension, but an in-memory database, so no data/ folder is
+    # needed. Only unit tests run there (their inputs are mocked, so no data is read):
+    #   dbt test --select "test_type:unit" --target ci
+    ci:
+      type: duckdb
+      path: ":memory:"
+      threads: 1
+      extensions:
+        - spatial

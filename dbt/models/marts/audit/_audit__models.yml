@@ -1,0 +1,30 @@
+version: 2
+
+models:
+  - name: fct_dq_rejections
+    description: >
+      Rejected-record counts per species and reason. A record can have several reasons,
+      so rows overlap; use fct_dq_summary for per-species totals.
+    columns:
+      - name: reason
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - missing_coordinates
+                  - zero_or_swapped_coords
+                  - outside_study_area
+                  - uncertainty_too_high
+                  - coordinates_too_coarse
+                  - bad_basis_of_record
+                  - cultivated
+                  - year_out_of_range
+                  - gbif_geospatial_issue
+                  - low_taxon_confidence
+
+  - name: fct_dq_summary
+    description: Per-species funnel from all records to clean, deduplicated records.
+    columns:
+      - name: species_name
+        data_tests: [unique, not_null]

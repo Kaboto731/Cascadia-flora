@@ -1,0 +1,26 @@
+version: 2
+
+seeds:
+  - name: species_list
+    description: Species in scope, with GBIF taxon keys (built by scripts/build_species_seed.py).
+    columns:
+      - name: species_key
+        data_tests:
+          - unique
+          - not_null
+
+  - name: study_area
+    description: >
+      One row holding the Cascadia study area (WA + OR + BC) as WKT, built by
+      scripts/build_study_area.py. Used for the exact point-in-polygon check.
+    config:
+      column_types:
+        wkt: varchar
+    columns:
+      - name: name
+        data_tests:
+          - unique
+          - not_null
+      - name: wkt
+        data_tests:
+          - not_null

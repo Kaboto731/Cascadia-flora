@@ -1,0 +1,32 @@
+version: 2
+
+models:
+  - name: stg_gbif__occurrences
+    description: Typed, renamed GBIF occurrences. One row per GBIF record.
+    columns:
+      - name: gbif_id
+        data_tests:
+          - unique
+          - not_null
+      - name: species_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('species_list')
+                field: species_key
+      - name: basis_of_record
+        data_tests:
+          - accepted_values:
+              arguments:
+                values:
+                  - HUMAN_OBSERVATION
+                  - PRESERVED_SPECIMEN
+                  - LIVING_SPECIMEN
+                  - MATERIAL_SAMPLE
+                  - MACHINE_OBSERVATION
+                  - FOSSIL_SPECIMEN
+                  - OCCURRENCE
+                  - MATERIAL_CITATION
+              config:
+                severity: warn   # a new value from GBIF should alert, not block

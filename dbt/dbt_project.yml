@@ -1,0 +1,29 @@
+name: cascadia_flora
+version: "0.1.0"
+config-version: 2
+profile: cascadia_flora
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+clean-targets: ["target", "dbt_packages"]
+
+# Thresholds for the cleaning rules live here so they are easy to find and change.
+vars:
+  max_uncertainty_m: 1000       # PRISM/WorldClim cells are ~1 km; larger errors sample the wrong climate
+  min_coordinate_decimals: 3    # fewer decimals means coordinates rounded to ~100 m or worse
+  min_year: 1970                # earliest record year kept
+
+models:
+  cascadia_flora:
+    staging:
+      +materialized: view
+    intermediate:
+      +materialized: table
+    marts:
+      +materialized: table
+
+seeds:
+  cascadia_flora:
+    +quote_columns: false

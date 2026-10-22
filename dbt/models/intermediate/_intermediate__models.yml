@@ -1,0 +1,111 @@
+version: 2
+
+models:
+  - name: int_occurrences__geo
+    description: Staging records plus in_study_area (exact WA + OR + BC polygon check).
+    columns:
+      - name: gbif_id
+        data_tests: [unique, not_null]
+
+  - name: int_occurrences__flagged
+    description: >
+      Every record with its rejection_reasons (excluded from modeling) and review_flags
+      (kept, worth a sensitivity check). Flag, don't delete.
+    columns:
+      - name: gbif_id
+        data_tests: [unique, not_null]
+      - name: rejection_reasons
+        data_tests: [not_null]
+      - name: is_clean
+        data_tests: [not_null]
+
+  - name: int_occurrences__deduped
+    description: Clean records with duplicates removed.
+    columns:
+      - name: gbif_id
+        data_tests: [unique, not_null]
+
+unit_tests:
+  # --- study-area check (needs the spatial extension, loaded by the profile) ---
+  - name: geo_flags_points_inside_and_outside_polygon
+    model: int_occurrences__geo
+    given:
+      - input: ref('stg_gbif__occurrences')
+        rows:
+          - {gbif_id: 1, lat: 47.0, lon: -120.0}   # inside the test box
+          - {gbif_id: 2, lat: 47.0, lon: -110.0}   # east of it
+          - {gbif_id: 3, lat: 30.0, lon: -120.0}   # south of it
+          - {gbif_id: 4, lat: null, lon: null}     # no coordinates
+      - input: ref('study_area')
+        rows:
+          - {name: cascadia, wkt: "POLYGON((-124 42, -117 42, -117 49, -124 49, -124 42))"}
+    expect:
+      rows:
+        - {gbif_id: 1, in_study_area: true}
+        - {gbif_id: 2, in_study_area: false}
+        - {gbif_id: 3, in_study_area: false}
+        - {gbif_id: 4, in_study_area: null}
+
+  # --- one row per rule, each expected to fire alone ---
+  # Every mocked row lists the same columns (dbt requires it). The first row is an anchor
+  # holding a clean record; later rows copy it with <<: *base and override one thing.
+  - name: each_rule_flags_its_own_reason
+    model: int_occurrences__flagged
+    given:
+      - input: ref('int_occurrences__geo')
+        rows:
+          - &base {gbif_id: 9, lat: 47.6, lon: -122.3, lat_decimals: 5, lon_decimals: 5, in_study_area: true, uncertainty_m: 30, basis_of_record: HUMAN_OBSERVATION, establishment_means: null, event_year: 2022, issue: null}
+          - {<<: *base, gbif_id: 10, lat: null, lon: null, lat_decimals: null, lon_decimals: null, in_study_area: null}
+          - {<<: *base, gbif_id: 11, lat: 0, lon: 0}
+          - {<<: *base, gbif_id: 12, in_study_area: false}
+          - {<<: *base, gbif_id: 13, uncertainty_m: 5000}
+          - {<<: *base, gbif_id: 14, lat_decimals: 1}
+          - {<<: *base, gbif_id: 15, basis_of_record: LIVING_SPECIMEN}
+          - {<<: *base, gbif_id: 16, establishment_means: MANAGED}
+          - {<<: *base, gbif_id: 17, event_year: 1950}
+          - {<<: *base, gbif_id: 18, event_year: null}
+          - {<<: *base, gbif_id: 19, issue: "COORDINATE_ROUNDED;PRESUMED_SWAPPED_COORDINATE"}
+          - {<<: *base, gbif_id: 20, issue: "TAXON_MATCH_HIGHERRANK"}
+    expect:
+      rows:
+        - {gbif_id: 9, rejection_reason_text: ""}   # control: the base row stays clean
+        - {gbif_id: 10, rejection_reason_text: "missing_coordinates"}
+        - {gbif_id: 11, rejection_reason_text: "zero_or_swapped_coords"}
+        - {gbif_id: 12, rejection_reason_text: "outside_study_area"}
+        - {gbif_id: 13, rejection_reason_text: "uncertainty_too_high"}
+        - {gbif_id: 14, rejection_reason_text: "coordinates_too_coarse"}
+        - {gbif_id: 15, rejection_reason_text: "bad_basis_of_record"}
+        - {gbif_id: 16, rejection_reason_text: "cultivated"}
+        - {gbif_id: 17, rejection_reason_text: "year_out_of_range"}
+        - {gbif_id: 18, rejection_reason_text: "year_out_of_range"}
+        - {gbif_id: 19, rejection_reason_text: "gbif_geospatial_issue"}
+        - {gbif_id: 20, rejection_reason_text: "low_taxon_confidence"}
+
+  # --- records that must stay clean, including the threshold boundaries ---
+  - name: clean_records_and_boundaries_pass
+    model: int_occurrences__flagged
+    given:
+      - input: ref('int_occurrences__geo')
+        rows:
+          # ordinary clean record (issue is NULL on purpose)
+          - &clean {gbif_id: 30, lat: 47.6, lon: -122.3, lat_decimals: 5, lon_decimals: 5, in_study_area: true, uncertainty_m: 30, basis_of_record: HUMAN_OBSERVATION, establishment_means: null, event_year: 2022, issue: null}
+          # exactly at the limits: 1000 m uncertainty, 3 decimals, year 1970
+          - {<<: *clean, gbif_id: 31, lat_decimals: 3, lon_decimals: 3, uncertainty_m: 1000, basis_of_record: PRESERVED_SPECIMEN, event_year: 1970}
+          # unknown uncertainty is kept, but flagged for review
+          - {<<: *clean, gbif_id: 32, uncertainty_m: null}
+    expect:
+      rows:
+        - {gbif_id: 30, is_clean: true, rejection_reason_text: "", review_flag_text: ""}
+        - {gbif_id: 31, is_clean: true, rejection_reason_text: "", review_flag_text: ""}
+        - {gbif_id: 32, is_clean: true, rejection_reason_text: "", review_flag_text: "uncertainty_missing"}
+
+  # --- a record can fail several rules, and all of them are reported ---
+  - name: multiple_reasons_are_all_reported
+    model: int_occurrences__flagged
+    given:
+      - input: ref('int_occurrences__geo')
+        rows:
+          - {gbif_id: 40, lat: 47.6, lon: -122.3, lat_decimals: 5, lon_decimals: 5, in_study_area: true, uncertainty_m: 5000, basis_of_record: LIVING_SPECIMEN, establishment_means: null, event_year: 1950, issue: null}
+    expect:
+      rows:
+        - {gbif_id: 40, is_clean: false, rejection_reason_text: "uncertainty_too_high;bad_basis_of_record;year_out_of_range"}
