@@ -61,7 +61,8 @@ def csv_to_parquet(src: Path, dest: Path) -> int:
         ) TO '{_q(dest)}' (FORMAT parquet)
         """
     )
-    return duckdb.sql(f"SELECT count(*) FROM read_parquet('{_q(dest)}')").fetchone()[0]
+    # execute() rather than sql(): newer DuckDB relations no longer have fetchone().
+    return duckdb.execute(f"SELECT count(*) FROM read_parquet('{_q(dest)}')").fetchone()[0]
 
 
 def append_manifest(row: dict, path: Path = MANIFEST) -> bool:
