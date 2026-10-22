@@ -4,6 +4,7 @@
 !.env.example
 .streamlit/secrets.toml
 
+
 # ---------- Data (documented in docs/, never committed) ----------
 # Keep the folder itself via a placeholder file
 data/*
@@ -44,6 +45,7 @@ htmlcov/
 dbt/target/
 dbt/dbt_packages/
 dbt/logs/
+dbt/.user.yml
 
 # ---------- Dagster ----------
 .dagster/
