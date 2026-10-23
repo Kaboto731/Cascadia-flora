@@ -63,6 +63,7 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.4",
     "pre-commit>=3.7",
+    "shapely>=2.0", #tests/test_study_area.py checks with shapely.wkt 
 ]
 
 # Everything at once (may take a while to resolve)

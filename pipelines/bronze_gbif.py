@@ -61,8 +61,10 @@ def csv_to_parquet(src: Path, dest: Path) -> int:
         ) TO '{_q(dest)}' (FORMAT parquet)
         """
     )
-    # execute() rather than sql(): newer DuckDB relations no longer have fetchone().
-    return duckdb.execute(f"SELECT count(*) FROM read_parquet('{_q(dest)}')").fetchone()[0]
+    # fetchall() reads the result to the end. Newer DuckDB keeps a connection busy after
+    # fetchone(), which broke the next query on the shared default connection.
+    rows = duckdb.sql(f"SELECT count(*) FROM read_parquet('{_q(dest)}')").fetchall()
+    return rows[0][0]
 
 
 def append_manifest(row: dict, path: Path = MANIFEST) -> bool:
