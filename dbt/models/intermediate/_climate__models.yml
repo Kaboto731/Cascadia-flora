@@ -1,0 +1,15 @@
+version: 2
+
+models:
+  - name: int_occurrences__climate
+    description: >
+      Clean, deduplicated occurrences with WorldClim 2.1 bioclimatic variables (bio_1 to
+      bio_19, 1970-2000 normals) sampled at each point. Temperatures in C, precipitation in mm.
+    columns:
+      - name: gbif_id
+        data_tests: [unique, not_null]
+      - name: has_climate
+        data_tests: [not_null]
+      - name: climate_snapped
+        description: True when a coastal point took the nearest land pixel within about 1 km.
+        data_tests: [not_null]

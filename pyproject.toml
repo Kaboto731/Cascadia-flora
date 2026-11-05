@@ -63,7 +63,8 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.4",
     "pre-commit>=3.7",
-    "shapely>=2.0", #tests/test_study_area.py checks with shapely.wkt 
+    "shapely>=2.0",   # tests/test_study_area.py checks the study-area polygon seed
+    "rasterio>=1.3",  # tests/test_ingest_worldclim.py builds small synthetic rasters
 ]
 
 # Everything at once (may take a while to resolve)
@@ -93,6 +94,11 @@ select = [
     "UP",  # pyupgrade
     "SIM", # simplifications
 ]
+
+[tool.ruff.lint.isort]
+# Without this, ruff guesses whether `pipelines` is your own code or a package, and the guess
+# differs between a laptop (installed with -e) and CI, so import order flipped between them.
+known-first-party = ["pipelines"]
 
 [tool.ruff.format]
 quote-style = "double"

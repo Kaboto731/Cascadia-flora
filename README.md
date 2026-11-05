@@ -20,17 +20,18 @@ Everything here uses public-access data and free, open-source tools. The pipelin
 5. [Architecture](#architecture)
 6. [Data cleaning rules](#data-cleaning-rules)
 7. [Baseline findings](#baseline-findings)
-8. [Satellite enrichment: leaf area index](#satellite-enrichment-leaf-area-index)
-9. [dbt project design](#dbt-project-design)
-10. [Data quality and testing](#data-quality-and-testing)
-11. [Modeling approach](#modeling-approach)
-12. [Analyses](#analyses)
-13. [Dashboard](#dashboard)
-14. [Repository layout](#repository-layout)
-15. [Getting started](#getting-started)
-16. [Roadmap](#roadmap)
-17. [Limitations and design decisions](#limitations-and-design-decisions)
-18. [Data citations and licenses](#data-citations-and-licenses)
+8. [Climate: WorldClim](#climate-worldclim)
+9. [Satellite enrichment: leaf area index](#satellite-enrichment-leaf-area-index)
+10. [dbt project design](#dbt-project-design)
+11. [Data quality and testing](#data-quality-and-testing)
+12. [Modeling approach](#modeling-approach)
+13. [Analyses](#analyses)
+14. [Dashboard](#dashboard)
+15. [Repository layout](#repository-layout)
+16. [Getting started](#getting-started)
+17. [Roadmap](#roadmap)
+18. [Limitations and design decisions](#limitations-and-design-decisions)
+19. [Data citations and licenses](#data-citations-and-licenses)
 
 ---
 
@@ -72,7 +73,7 @@ Species are resolved to GBIF backbone taxon keys by `scripts/build_species_seed.
 |---|---|---|---|
 | Occurrences | [GBIF](https://www.gbif.org) (includes iNaturalist research-grade and herbarium records), [Consortium of Pacific Northwest Herbaria](https://www.pnwherbaria.org) | Free account, download API with DOI | In use (GBIF) |
 | Leaf area index | NASA MODIS MOD15A2H v061 (Terra, 8-day, 500 m) via [Microsoft Planetary Computer](https://planetarycomputer.microsoft.com) | Free STAC API | Code written, first real run pending |
-| Climate (current) | [WorldClim](https://www.worldclim.org) 2.1 (~1 km) | Public download | Planned |
+| Climate (current) | [WorldClim](https://www.worldclim.org) 2.1 bioclimatic variables, 1970-2000 (~1 km) | Public download | Code written and tested on synthetic rasters, first real run pending |
 | Climate (future) | WorldClim CMIP6 projections | Public download | Planned |
 | Elevation | Copernicus DEM GLO-30 (covers Canada and the US; derive slope, aspect) | Public, via Planetary Computer | Planned |
 | Soil | [SoilGrids](https://soilgrids.org) | Public API / download | Planned |
@@ -104,7 +105,7 @@ Species are resolved to GBIF backbone taxon keys by `scripts/build_species_seed.
 ---
 
 ## Architecture
-The bronze layer is skipped for MODIS/LAI due to the sheer volume of storing it locally.
+
 ```mermaid
 flowchart LR
     subgraph Sources
@@ -114,14 +115,15 @@ flowchart LR
         A4[DEM / SoilGrids]
     end
 
-    subgraph Bronze["Bronze: raw, all text"]
+    subgraph Bronze["Bronze: raw, untouched"]
         B1[(gbif_occurrences.parquet)]
-        B2[(rasters)]
+        B2[(wc2.1_bio.zip + manifest)]
     end
 
     subgraph Python["Python pipelines"]
         P1[ingest_lai<br/>tiles + point sampling]
-        P2[H3 zonal stats<br/>climate, terrain, soil]
+        P2[ingest_worldclim<br/>clip + point sampling]
+        P3[H3 zonal stats<br/>terrain, soil, climate grid]
     end
 
     subgraph Silver["Silver: dbt staging + intermediate"]
@@ -131,6 +133,8 @@ flowchart LR
         S4[int_occurrences__deduped]
         S5[modis_lai_points]
         S6[int_occurrences__lai]
+        S7[worldclim_points]
+        S8[int_occurrences__climate]
     end
 
     subgraph Gold["Gold: dbt marts"]
@@ -138,6 +142,7 @@ flowchart LR
         G2[fct_dq_summary]
         G3[fct_species_lai_summary]
         G4[fct_species_hex_features]
+        G5[fct_species_climate_summary]
     end
 
     subgraph Serve
@@ -149,13 +154,15 @@ flowchart LR
     S3 --> G1 & G2
     A2 --> P1 --> S5
     S4 & S5 --> S6 --> G3
-    A3 & A4 --> B2 --> P2 --> G4
+    A3 --> B2 --> P2 --> S7
+    S4 & S7 --> S8 --> G5
+    A4 --> P3 --> G4
     S4 --> G4
     G4 --> M1 --> D1
-    G1 & G2 & G3 --> D1
+    G1 & G2 & G3 & G5 --> D1
 ```
 
-The thinning model, hex features and everything after them are planned. Everything up to `int_occurrences__deduped` exists today.
+The thinning model, hex features and everything after them are planned. The GBIF models up to `int_occurrences__deduped` exist today, and the WorldClim path (`ingest_worldclim` through `fct_species_climate_summary`) is built and tested on synthetic data. The MODIS path is written but not yet restructured to land raw rasters in bronze.
 
 ### Layers
 
@@ -234,6 +241,32 @@ From the first GBIF pull, which used the earlier, looser download box. `TODO: re
 
 ---
 
+## Climate: WorldClim
+
+**Question:** what climate does each species actually occupy, and what climate will those places have later?
+
+**Data:** WorldClim 2.1 historical climate (1970-2000): the 19 bioclimatic variables, global, at about 1 km (`30s`). Temperatures are in degrees C and precipitation in mm. The resolution is a command-line option (`10m`, `5m`, `2.5m`, `30s`), and the choice is part of every file name, so a small coarse copy can be used to try the pipeline first.
+
+**Pipeline (`pipelines/ingest_worldclim.py`), three steps:**
+
+1. **`download` (bronze):** save the raw zip untouched into `data/bronze/worldclim/`, check that it holds all 19 bands, and record the URL, date, size and SHA-256 in `manifest.csv`. A cut-short download is deleted rather than kept.
+2. **`clip` (silver):** cut the study box out of each band and stack them into one compressed 19-band GeoTIFF (`data/silver/worldclim/bio_<res>_cascadia.tif`, no-data as NaN). This file is also the input for later hex-grid summaries and model prediction maps.
+3. **`points` (silver):** read the climate value at every bronze occurrence and write `data/silver/worldclim_points/worldclim_points.parquet`, one row per `gbif_id` with `bio_1` to `bio_19`.
+
+**Coastal points:** WorldClim covers land only, so a record on the shoreline can land on a no-data pixel. A point like that takes the nearest land pixel within one pixel (about 1 km, inside the 1 km coordinate-uncertainty limit), and is marked `climate_snapped = true`. Farther offshore, the climate stays empty and the record is counted, not guessed.
+
+**In dbt:**
+
+- `int_occurrences__climate` left-joins the points onto the cleaned, deduplicated occurrences and adds `has_climate` and `climate_snapped`.
+- `fct_species_climate_summary` gives each species' 5th, median and 95th percentile of annual mean temperature (`bio_1`), annual precipitation (`bio_12`) and driest-quarter precipitation (`bio_17`, a summer-drought measure). Percentiles are used instead of min and max so one bad coordinate cannot stretch a species' niche.
+- Tests: values must be physically plausible (a x10 unit mistake or a shifted grid fails the build), and more than 2% of records without climate raises a warning.
+
+**Status:** tested end to end on small synthetic rasters (sampling, coastal snapping, manifest, and the dbt build). The real download has not been run yet, so no real climate numbers appear here. `TODO: add the species climate summary after the first real run.`
+
+**Future climate:** the same layout will take WorldClim CMIP6 projections (a global climate model, a scenario and a period, for example 2041-2060). `TODO: not built yet.`
+
+---
+
 ## Satellite enrichment: leaf area index
 
 **Question:** how leafy is the canopy at each occurrence record, and how does LAI vary across the region and by species?
@@ -276,8 +309,11 @@ dbt/
 │   └── gbif_download_manifest.csv    # DOI, date, filters
 ├── models/
 │   ├── staging/gbif/      stg_gbif__occurrences.sql + source and model yml
-│   ├── intermediate/      int_occurrences__geo.sql, __flagged.sql, __deduped.sql
-│   └── marts/audit/       fct_dq_rejections.sql, fct_dq_summary.sql
+│   ├── intermediate/      int_occurrences__geo.sql, __flagged.sql, __deduped.sql,
+│   │                      int_occurrences__climate.sql
+│   └── marts/
+│       ├── audit/         fct_dq_rejections.sql, fct_dq_summary.sql
+│       └── ecology/       fct_species_climate_summary.sql
 └── tests/                            # singular tests
 ```
 
@@ -285,16 +321,25 @@ Planned additions: `int_occurrences__thinned`, `int_occurrences__lai`, `fct_spec
 
 ### Source definition
 
-Sources are read directly from Parquet through dbt-duckdb's `external_location`. Bronze is all text, and typing happens in staging.
+Sources are read directly from Parquet through dbt-duckdb's `external_location`. Bronze is all text, and typing happens in staging. A second source, `enrichment`, reads the values Python pipelines have read off rasters (`data/silver/<table>/*.parquet`).
 
 ```yaml
 sources:
   - name: bronze
+    config:
+      meta:
+        external_location: "read_parquet('../data/bronze/{name}/*.parquet')"
     tables:
       - name: gbif_occurrences
-        config:
-          external_location: "read_parquet('../data/bronze/{name}/*.parquet')"
+  - name: enrichment
+    config:
+      meta:
+        external_location: "read_parquet('../data/silver/{name}/*.parquet')"
+    tables:
+      - name: worldclim_points
 ```
+
+Because `int_occurrences__climate` reads `worldclim_points`, run `python -m pipelines.ingest_worldclim points` before a full `dbt build`, or build without it: `dbt build --exclude int_occurrences__climate+`.
 
 ### Staging: rename, cast, nothing else
 
@@ -348,7 +393,7 @@ unit_tests:
         - {gbif_id: 1, rejection_reasons: ['uncertainty_too_high']}
 ```
 
-**Python tests:** `pytest` for the species seed, the GBIF request builder, the bronze loader, the study-area polygon (known cities inside, known neighbors outside) and, in progress, the LAI functions. CI runs `ruff` and `pytest -m "not slow"` on every push. `TODO: add a CI job for dbt unit tests.`
+**Python tests:** `pytest` for the species seed, the GBIF request builder, the bronze loader, the study-area polygon (known cities inside, known neighbors outside), and the WorldClim pipeline (a synthetic raster in which every pixel's value encodes its band, row and column, so a test can prove the right pixel was read). The LAI functions are next. CI runs `ruff` and `pytest -m "not slow"` on every push. `TODO: add a CI job for dbt unit tests.`
 
 ---
 
@@ -439,7 +484,13 @@ python -m pipelines.bronze_gbif <key>          # writes Parquet, manifest, basel
 # 5. Clean with dbt
 cd dbt && dbt seed && dbt build && cd ..
 
-# 6. Satellite LAI (needs internet access to the Planetary Computer)
+# 6. Climate (WorldClim): try a coarse copy first, then the full 1 km data
+python -m pipelines.ingest_worldclim download --res 10m
+python -m pipelines.ingest_worldclim points --res 10m     # clips, then samples every occurrence
+cd dbt && dbt build && cd ..
+#    full resolution: repeat the first two commands without --res (the 1 km zip is large)
+
+# 7. Satellite LAI (needs internet access to the Planetary Computer)
 python -m pipelines.ingest_lai build           # regional map and statistics
 python -m pipelines.ingest_lai points          # LAI at every occurrence
 ```
@@ -461,7 +512,8 @@ Planned: `dagster dev` to run everything as assets, `streamlit run app/main.py` 
 - [x] dbt staging, geo and flagging models
 - [x] Data quality tests and unit tests
 - [ ] Redownload with the Cascadia box and run `dbt build` on the real data
-- [ ] Climate (WorldClim), DEM and soil ingestion
+- [ ] Climate (WorldClim, present day): code, tests and dbt models written; first real run pending
+- [ ] DEM and soil ingestion
 
 **Week 3: Spatial enrichment**
 - [ ] Satellite LAI: first real run, region map, per-occurrence values (code written)

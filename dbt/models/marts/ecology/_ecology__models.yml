@@ -1,0 +1,10 @@
+version: 2
+
+models:
+  - name: fct_species_climate_summary
+    description: >
+      Climate niche summary per species: 5th, median and 95th percentile of annual mean
+      temperature, annual precipitation and driest-quarter precipitation.
+    columns:
+      - name: species_name
+        data_tests: [unique, not_null]

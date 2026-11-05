@@ -10,3 +10,14 @@ sources:
     tables:
       - name: gbif_occurrences
         description: GBIF SIMPLE_CSV download, all columns as text.
+
+  - name: enrichment
+    description: >
+      Values read off rasters by the Python pipelines (satellite and climate), one row per
+      occurrence. Produced by `python -m pipelines.ingest_worldclim points`.
+    config:
+      meta:
+        external_location: "read_parquet('../data/silver/{name}/*.parquet')"
+    tables:
+      - name: worldclim_points
+        description: WorldClim bio_1..bio_19 at each GBIF occurrence, keyed by gbif_id.
