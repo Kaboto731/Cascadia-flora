@@ -14,10 +14,16 @@ sources:
   - name: enrichment
     description: >
       Values read off rasters by the Python pipelines (satellite and climate), one row per
-      occurrence. Produced by `python -m pipelines.ingest_worldclim points`.
+      occurrence. Each table comes from one command, named below.
     config:
       meta:
         external_location: "read_parquet('../data/silver/{name}/*.parquet')"
     tables:
       - name: worldclim_points
-        description: WorldClim bio_1..bio_19 at each GBIF occurrence, keyed by gbif_id.
+        description: >
+          WorldClim bio_1..bio_19 at each GBIF occurrence, keyed by gbif_id.
+          Produced by `python -m pipelines.ingest_worldclim points`.
+      - name: modis_lai_points
+        description: >
+          Summer (July-August) MODIS leaf area index at each GBIF occurrence, keyed by gbif_id.
+          Produced by `python -m pipelines.ingest_lai points`.

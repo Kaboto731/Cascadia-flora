@@ -8,3 +8,11 @@ models:
     columns:
       - name: species_name
         data_tests: [unique, not_null]
+
+  - name: fct_species_lai_summary
+    description: >
+      Summer leaf area index around each species' records: 10th, median and 90th percentile,
+      the share with LAI at all, and the share in open (LAI < 3) and dense (LAI >= 5) cover.
+    columns:
+      - name: species_name
+        data_tests: [unique, not_null]

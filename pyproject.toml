@@ -14,7 +14,7 @@ authors = [{ name = "Your Name" }]  # TODO: replace
 # Core dependencies: enough for Week 1 (GBIF ingestion + bronze Parquet)
 dependencies = [
     "pygbif>=0.6",
-    "duckdb>=1.0",
+    "duckdb>=1.3",   # 1.3 added the `lambda x: ...` syntax that DuckDB 2.0 now requires
     "pandas>=2.0",
     "pyarrow>=15.0",
     "requests>=2.31",

@@ -36,14 +36,14 @@ flagged as (
             case when contains(coalesce(issue, ''), 'TAXON_MATCH_NONE')
                     or contains(coalesce(issue, ''), 'TAXON_MATCH_HIGHERRANK')
                 then 'low_taxon_confidence' end
-        ], x -> x is not null) as rejection_reasons,
+        ], lambda x: x is not null) as rejection_reasons,
 
         list_filter([
             -- Roughly 20% of records have no uncertainty. They pass the uncertainty rule
             -- (unknown is not the same as too high), but are flagged so a sensitivity
             -- run without them is easy.
             case when uncertainty_m is null then 'uncertainty_missing' end
-        ], x -> x is not null) as review_flags
+        ], lambda x: x is not null) as review_flags
     from base
 )
 

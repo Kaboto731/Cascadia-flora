@@ -72,7 +72,7 @@ Species are resolved to GBIF backbone taxon keys by `scripts/build_species_seed.
 | Need | Source | Access | Status |
 |---|---|---|---|
 | Occurrences | [GBIF](https://www.gbif.org) (includes iNaturalist research-grade and herbarium records), [Consortium of Pacific Northwest Herbaria](https://www.pnwherbaria.org) | Free account, download API with DOI | In use (GBIF) |
-| Leaf area index | NASA MODIS MOD15A2H v061 (Terra, 8-day, 500 m) via [Microsoft Planetary Computer](https://planetarycomputer.microsoft.com) | Free STAC API | Code written, first real run pending |
+| Leaf area index | NASA MODIS MOD15A2H v061 (Terra, 8-day, 500 m) via [Microsoft Planetary Computer](https://planetarycomputer.microsoft.com) | Free STAC API | Code and tests written (synthetic data), first real run pending |
 | Climate (current) | [WorldClim](https://www.worldclim.org) 2.1 bioclimatic variables, 1970-2000 (~1 km) | Public download | Code written and tested on synthetic rasters, first real run pending |
 | Climate (future) | WorldClim CMIP6 projections | Public download | Planned |
 | Elevation | Copernicus DEM GLO-30 (covers Canada and the US; derive slope, aspect) | Public, via Planetary Computer | Planned |
@@ -118,6 +118,7 @@ flowchart LR
     subgraph Bronze["Bronze: raw, untouched"]
         B1[(gbif_occurrences.parquet)]
         B2[(wc2.1_bio.zip + manifest)]
+        B3[(modis_lai scenes + manifest)]
     end
 
     subgraph Python["Python pipelines"]
@@ -152,7 +153,7 @@ flowchart LR
 
     A1 --> B1 --> S1 --> S2 --> S3 --> S4
     S3 --> G1 & G2
-    A2 --> P1 --> S5
+    A2 --> B3 --> P1 --> S5
     S4 & S5 --> S6 --> G3
     A3 --> B2 --> P2 --> S7
     S4 & S7 --> S8 --> G5
@@ -162,7 +163,7 @@ flowchart LR
     G1 & G2 & G3 & G5 --> D1
 ```
 
-The thinning model, hex features and everything after them are planned. The GBIF models up to `int_occurrences__deduped` exist today, and the WorldClim path (`ingest_worldclim` through `fct_species_climate_summary`) is built and tested on synthetic data. The MODIS path is written but not yet restructured to land raw rasters in bronze.
+The thinning model, hex features and everything after them are planned. The GBIF models up to `int_occurrences__deduped` exist today, and both raster paths (WorldClim: `ingest_worldclim` through `fct_species_climate_summary`; MODIS: `ingest_lai` through `fct_species_lai_summary`) are built and tested on synthetic data. WorldClim has also run on real data at coarse resolution.
 
 ### Layers
 
@@ -273,16 +274,17 @@ From the first GBIF pull, which used the earlier, looser download box. `TODO: re
 
 **Data:** MODIS MOD15A2H (Terra), an 8-day, 500 m product on the sinusoidal grid, accessed through the Planetary Computer STAC API. The LAI band is stored as an integer with a scale factor of 0.1.
 
-**Pipeline (`pipelines/ingest_lai.py`):**
+**Pipeline (`pipelines/ingest_lai.py`), three commands in the same raw-first layout as the rest of the project:**
 
-1. Search STAC for tiles covering the study box for each year in the window (default 2019 to 2023).
-2. Keep only July and August composites, the peak growing season, so the values are comparable across the region.
-3. Mask low-quality pixels using the `FparLai_QC` band (good retrieval, clear sky, little snow or cloud contamination) and drop fill and land-cover codes (water, urban, barren, snow/ice, all stored as values above 100).
-4. Accumulate a per-pixel summer mean, peak and observation count, and cache each tile so reruns resume rather than redownload.
-5. **Region product:** mosaic the tiles, mask to the study-area polygon, and write a GeoTIFF, a PNG map and a JSON summary of statistics.
-6. **Point pairing:** transform each occurrence's longitude and latitude into the sinusoidal grid and read the pixel value, writing `data/silver/modis_lai_points/lai_points.parquet` with `gbif_id`, `lai_summer_mean`, `lai_summer_max`, `lai_n_obs` and `modis_tile`.
+1. **`fetch` (bronze, the only step that needs the network):** search the STAC catalog for the July and August composites over the study box (default years 2019 to 2023), then save each scene's LAI raster and its quality-flag raster byte for byte into `data/bronze/modis_lai/<year>/`. A `manifest.csv` records the scene, tile, size and SHA-256 of every file (signed URL tokens are never stored). Files already present are skipped, so an interrupted run resumes, and a partial or unreadable file is deleted rather than kept.
+2. **`build` (silver and gold, local files only):** mask low-quality pixels using the `FparLai_QC` band (good retrieval, clear sky, little snow or cloud contamination), drop fill and land-cover codes (water, urban, barren, snow/ice, all stored as values above 100), and average each tile's scenes into a per-pixel summer mean, peak and observation count. It then mosaics the tiles, masks to the study-area polygon and writes a GeoTIFF, a PNG map and a JSON summary of statistics. Because it reads only bronze, you can change the quality rule or the year range and rerun without downloading anything again.
+3. **`points` (silver):** transform each occurrence's longitude and latitude into the MODIS sinusoidal grid and read the pixel value, writing `data/silver/modis_lai_points/lai_points.parquet` with `gbif_id`, `lai_summer_mean`, `lai_summer_max`, `lai_n_obs` and `modis_tile`.
 
-dbt then joins that Parquet onto `int_occurrences__deduped` by `gbif_id` and summarizes LAI by species. `TODO: models int_occurrences__lai and fct_species_lai_summary are planned, not built yet.`
+**In dbt:**
+
+- `int_occurrences__lai` left-joins that Parquet onto `int_occurrences__deduped` by `gbif_id` and adds `has_lai`. Records with no LAI (cities, water, bare rock, ice) are kept with empty values, because the absence is itself information.
+- `fct_species_lai_summary` gives each species' 10th, median and 90th percentile of summer LAI, the share of records with any LAI, and the share in open (LAI under 3) and dense (LAI 5 and up) cover.
+- Tests: LAI must lie between 0 and 10 and the best composite can never be below the mean (a wrong scale factor fails the build), and a warning fires if fewer than 40% of records have any LAI, which would mean the raster does not line up with the occurrences.
 
 **Interpretation caveats:**
 
@@ -291,7 +293,7 @@ dbt then joins that Parquet onto `int_occurrences__deduped` by `gbif_id` and sum
 - LAI saturates in dense old-growth conifer forest, so differences among the highest values are weak evidence.
 - LAI describes the site, not the species. It is a useful environmental feature and a sanity check, not a species trait.
 
-**Status:** the code is written, but a first real run against the Planetary Computer has not happened yet, and the map and statistics in this section will be added after it. `TODO: add the map and region summary here.`
+**Status:** tested end to end on synthetic MODIS tiles (quality-bit decoding, fill masking, averaging, pixel lookup in the sinusoidal grid, the download and manifest logic with a fake server, and the dbt build). The real download has not been run yet, so there is no real LAI map or statistics here. Three things were written from documentation and are not yet confirmed against the live catalog: the collection name (`modis-15A2H-061`), the two asset names (`Lai_500m`, `FparLai_QC`) and the quality-bit layout. If the first run fails on a missing asset, the error lists the names that exist. `TODO: add the map and region summary after the first real run.`
 
 ---
 
@@ -310,10 +312,10 @@ dbt/
 ├── models/
 │   ├── staging/gbif/      stg_gbif__occurrences.sql + source and model yml
 │   ├── intermediate/      int_occurrences__geo.sql, __flagged.sql, __deduped.sql,
-│   │                      int_occurrences__climate.sql
+│   │                      int_occurrences__climate.sql, int_occurrences__lai.sql
 │   └── marts/
 │       ├── audit/         fct_dq_rejections.sql, fct_dq_summary.sql
-│       └── ecology/       fct_species_climate_summary.sql
+│       └── ecology/       fct_species_climate_summary.sql, fct_species_lai_summary.sql
 └── tests/                            # singular tests
 ```
 
@@ -337,9 +339,12 @@ sources:
         external_location: "read_parquet('../data/silver/{name}/*.parquet')"
     tables:
       - name: worldclim_points
+      - name: modis_lai_points
 ```
 
-Because `int_occurrences__climate` reads `worldclim_points`, run `python -m pipelines.ingest_worldclim points` before a full `dbt build`, or build without it: `dbt build --exclude int_occurrences__climate+`.
+Because `int_occurrences__climate` and `int_occurrences__lai` read those tables, run `python -m pipelines.ingest_worldclim points` and `python -m pipelines.ingest_lai points` before a full `dbt build`, or build without them: `dbt build --exclude "int_occurrences__climate+" "int_occurrences__lai+"`.
+
+**DuckDB version:** the models use DuckDB's `lambda x: ...` syntax, which needs DuckDB 1.3 or newer (DuckDB 2.0 removed the older `x -> ...` form), so `pyproject.toml` requires `duckdb>=1.3`.
 
 ### Staging: rename, cast, nothing else
 
@@ -393,7 +398,7 @@ unit_tests:
         - {gbif_id: 1, rejection_reasons: ['uncertainty_too_high']}
 ```
 
-**Python tests:** `pytest` for the species seed, the GBIF request builder, the bronze loader, the study-area polygon (known cities inside, known neighbors outside), and the WorldClim pipeline (a synthetic raster in which every pixel's value encodes its band, row and column, so a test can prove the right pixel was read). The LAI functions are next. CI runs `ruff` and `pytest -m "not slow"` on every push. `TODO: add a CI job for dbt unit tests.`
+**Python tests:** `pytest` for the species seed, the GBIF request builder, the bronze loader, the study-area polygon (known cities inside, known neighbors outside), and the WorldClim pipeline (a synthetic raster in which every pixel's value encodes its band, row and column, so a test can prove the right pixel was read), and the MODIS LAI pipeline (a synthetic tile placed so Seattle falls on a known pixel, with a cloudy composite and an urban fill code, plus a fake server for the download and manifest logic). CI runs `ruff` and `pytest -m "not slow"` on every push. `TODO: add a CI job for dbt unit tests.`
 
 ---
 
@@ -490,9 +495,11 @@ python -m pipelines.ingest_worldclim points --res 10m     # clips, then samples 
 cd dbt && dbt build && cd ..
 #    full resolution: repeat the first two commands without --res (the 1 km zip is large)
 
-# 7. Satellite LAI (needs internet access to the Planetary Computer)
-python -m pipelines.ingest_lai build           # regional map and statistics
+# 7. Satellite LAI (only `fetch` needs internet access to the Planetary Computer)
+python -m pipelines.ingest_lai fetch           # raw MODIS rasters into bronze (hundreds of MB)
+python -m pipelines.ingest_lai build           # regional map and statistics, from bronze only
 python -m pipelines.ingest_lai points          # LAI at every occurrence
+cd dbt && dbt build && cd ..
 ```
 
 If you hit a dependency conflict between dbt and other packages, use a fresh virtual environment and install only the extras you need.
@@ -516,8 +523,7 @@ Planned: `dagster dev` to run everything as assets, `streamlit run app/main.py` 
 - [ ] DEM and soil ingestion
 
 **Week 3: Spatial enrichment**
-- [ ] Satellite LAI: first real run, region map, per-occurrence values (code written)
-- [ ] LAI join and per-species summary models in dbt
+- [ ] Satellite LAI: first real run, region map, per-occurrence values (code, tests and dbt models written and tested on synthetic data)
 - [ ] H3 zonal-stats asset
 - [ ] Thinning model, gold marts
 

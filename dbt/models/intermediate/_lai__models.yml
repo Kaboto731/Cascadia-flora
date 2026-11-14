@@ -1,0 +1,15 @@
+version: 2
+
+models:
+  - name: int_occurrences__lai
+    description: >
+      Clean, deduplicated occurrences with summer (July-August) MODIS leaf area index at each
+      point, averaged over the years in bronze (default 2019-2023). No LAI for urban, water,
+      bare or snow/ice pixels, so those records have has_lai = false.
+    columns:
+      - name: gbif_id
+        data_tests: [unique, not_null]
+      - name: has_lai
+        data_tests: [not_null]
+      - name: lai_n_obs
+        data_tests: [not_null]
