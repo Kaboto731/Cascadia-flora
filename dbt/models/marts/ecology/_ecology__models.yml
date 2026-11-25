@@ -16,3 +16,10 @@ models:
     columns:
       - name: species_name
         data_tests: [unique, not_null]
+
+  - name: fct_thinning_summary
+    description: >
+      Per species: records before and after spatial thinning, and the share kept.
+    columns:
+      - name: species_name
+        data_tests: [unique, not_null]

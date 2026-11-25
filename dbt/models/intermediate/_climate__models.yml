@@ -13,3 +13,15 @@ models:
       - name: climate_snapped
         description: True when a coastal point took the nearest land pixel within about 1 km.
         data_tests: [not_null]
+
+  - name: int_occurrences__thinned
+    description: >
+      Spatially thinned occurrences, one per species per grid cell (1/thin_cells_per_degree
+      degrees), restricted to records with climate. This is the presence data for the models.
+    columns:
+      - name: gbif_id
+        data_tests: [unique, not_null]
+      - name: cell_x
+        data_tests: [not_null]
+      - name: cell_y
+        data_tests: [not_null]

@@ -223,7 +223,7 @@ These are reviewed rather than auto-dropped, because they may be real signal. Th
 ### 4. Deduplication and spatial thinning
 
 1. **Dedup** *(built):* the same observation often appears through multiple datasets. Dedupe on species, coordinates rounded to 4 decimals, date, and observer.
-2. **Spatial thinning** *(planned)*: keep one record per species per H3 cell. This is the **sampling bias correction**, since iNaturalist is heavily clustered around Seattle, Portland and Vancouver.
+2. **Spatial thinning** *(built, `int_occurrences__thinned`)*: keep one record per species per grid cell of 1/120 degree, the same grid as the WorldClim 30s pixels, so each cell holds at most one record per species (the one with the smallest coordinate uncertainty). A plain lat/lon grid replaced the planned H3 cells because it lines up with the climate raster and needs no extension. Change the cell size with `--vars '{thin_cells_per_degree: N}'` (120 for 30s, 6 for 10m). This is the **sampling bias correction**, since iNaturalist is heavily clustered around Seattle, Portland and Vancouver.
 
 Both versions are kept: **thinned** for modeling, **unthinned** for density and trend analyses (for example, the Scotch broom spread).
 
@@ -277,7 +277,7 @@ From the first GBIF pull, which used the earlier, looser download box. `TODO: re
 **Pipeline (`pipelines/ingest_lai.py`), three commands in the same raw-first layout as the rest of the project:**
 
 1. **`fetch` (bronze, the only step that needs the network):** search the STAC catalog for the July and August composites over the study box (default years 2019 to 2023), then save each scene's LAI raster and its quality-flag raster byte for byte into `data/bronze/modis_lai/<year>/`. A `manifest.csv` records the scene, tile, size and SHA-256 of every file (signed URL tokens are never stored). Files already present are skipped, so an interrupted run resumes, and a partial or unreadable file is deleted rather than kept.
-2. **`build` (silver and gold, local files only):** mask low-quality pixels using the `FparLai_QC` band (good retrieval, clear sky, little snow or cloud contamination), drop fill and land-cover codes (water, urban, barren, snow/ice, all stored as values above 100), and average each tile's scenes into a per-pixel summer mean, peak and observation count. It then mosaics the tiles, masks to the study-area polygon and writes a GeoTIFF, a PNG map and a JSON summary of statistics. Because it reads only bronze, you can change the quality rule or the year range and rerun without downloading anything again.
+2. **`build` (silver and gold, local files only):** mask low-quality pixels using the `FparLai_QC` band (good retrieval, clear sky, little snow or cloud contamination), drop fill and land-cover codes (water, urban, barren, snow/ice, all stored as values above 100), and average each tile's scenes into a per-pixel summer mean, peak and observation count. It then mosaics the tiles, masks to the study-area polygon and writes a GeoTIFF, a PNG map and a JSON summary of statistics. Because it reads only bronze, you can change the quality rule or the year range and rerun without downloading anything again. The July-August selection is made here from each scene's name (its day of year), not left to the catalog's date filter, so a composite from another season can never end up in the "summer" mean; the summary lists how many composites each tile used, and a warning fires if a tile has more than a summer can hold.
 3. **`points` (silver):** transform each occurrence's longitude and latitude into the MODIS sinusoidal grid and read the pixel value, writing `data/silver/modis_lai_points/lai_points.parquet` with `gbif_id`, `lai_summer_mean`, `lai_summer_max`, `lai_n_obs` and `modis_tile`.
 
 **In dbt:**
@@ -312,14 +312,16 @@ dbt/
 ├── models/
 │   ├── staging/gbif/      stg_gbif__occurrences.sql + source and model yml
 │   ├── intermediate/      int_occurrences__geo.sql, __flagged.sql, __deduped.sql,
-│   │                      int_occurrences__climate.sql, int_occurrences__lai.sql
+│   │                      int_occurrences__climate.sql, int_occurrences__lai.sql,
+│   │                      int_occurrences__thinned.sql
 │   └── marts/
 │       ├── audit/         fct_dq_rejections.sql, fct_dq_summary.sql
-│       └── ecology/       fct_species_climate_summary.sql, fct_species_lai_summary.sql
+│       └── ecology/       fct_species_climate_summary.sql, fct_species_lai_summary.sql,
+│                          fct_thinning_summary.sql
 └── tests/                            # singular tests
 ```
 
-Planned additions: `int_occurrences__thinned`, `int_occurrences__lai`, `fct_species_lai_summary`, `dim_species`, and the hex feature tables.
+Planned additions: `dim_species` and terrain and soil feature tables.
 
 ### Source definition
 
@@ -453,7 +455,8 @@ cascadia-flora/
 ├── pipelines/          # study_area.py, ingest_gbif.py, bronze_gbif.py, ingest_lai.py (Dagster assets later)
 ├── scripts/            # build_species_seed.py, build_study_area.py
 ├── dbt/                # seeds, staging, intermediate, marts, tests
-├── models/             # SDM training, evaluation, projections (planned)
+├── sdm/                # species distribution models: cv, metrics, features, background, model, train
+│                       # (built, tested on synthetic data; projections to future climate planned)
 ├── app/                # Streamlit dashboard (planned)
 ├── data/               # bronze/ silver/ gold/ (git-ignored)
 ├── tests/              # Python unit tests
@@ -508,6 +511,20 @@ Planned: `dagster dev` to run everything as assets, `streamlit run app/main.py` 
 
 ---
 
+## Species distribution models (`sdm/`)
+
+Run after `dbt build`:
+
+```bash
+python -m sdm.train --res 30s --background target_group
+```
+
+For each species with enough thinned presences it builds a presence and background table, prunes correlated bioclim variables (|r| above 0.7), and evaluates logistic regression (quadratic terms), random forest and XGBoost with **spatial block CV** (1 degree blocks) and, for comparison, **random CV**. The gap between the two shows how much random CV flatters a model. Outputs go to `data/gold/sdm/`: `cv_metrics.csv`, `run_summary.json`, and per species a model file, `suitability.tif` and `suitability.png`.
+
+Presence-only data gives **relative suitability**, not the probability a species occurs. Background points come from the pooled records of the other species (`target_group`, which shares the observer bias) or uniformly over the study area (`random`).
+
+---
+
 ## Roadmap
 
 **Week 1: Foundations**
@@ -524,12 +541,11 @@ Planned: `dagster dev` to run everything as assets, `streamlit run app/main.py` 
 
 **Week 3: Spatial enrichment**
 - [ ] Satellite LAI: first real run, region map, per-occurrence values (code, tests and dbt models written and tested on synthetic data)
-- [ ] H3 zonal-stats asset
-- [ ] Thinning model, gold marts
+- [x] Thinning model (`int_occurrences__thinned`) and `fct_thinning_summary`
 
 **Week 4: Modeling**
-- [ ] Target-group background sampling
-- [ ] Baseline and XGBoost SDMs with spatial block CV
+- [x] Target-group and random background sampling (code and tests; first real run pending)
+- [x] Logistic, random forest and XGBoost SDMs with spatial block CV, TSS, AUC and Boyce (first real run pending)
 - [ ] FIA validation (US part of the region)
 
 **Week 5: Projections and analysis**

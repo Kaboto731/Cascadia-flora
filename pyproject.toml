@@ -65,13 +65,15 @@ dev = [
     "pre-commit>=3.7",
     "shapely>=2.0",   # tests/test_study_area.py checks the study-area polygon seed
     "rasterio>=1.3",  # tests/test_ingest_worldclim.py builds small synthetic rasters
+    "scikit-learn>=1.4",  # tests/test_sdm.py (xgboost tests skip if it is missing)
+    "scipy>=1.10",
 ]
 
 # Everything at once (may take a while to resolve)
 all = ["cascadia-flora[geo,pipeline,ml,app,dev]"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["pipelines"]
+packages = ["pipelines", "sdm"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -98,7 +100,7 @@ select = [
 [tool.ruff.lint.isort]
 # Without this, ruff guesses whether `pipelines` is your own code or a package, and the guess
 # differs between a laptop (installed with -e) and CI, so import order flipped between them.
-known-first-party = ["pipelines"]
+known-first-party = ["pipelines", "sdm"]
 
 [tool.ruff.format]
 quote-style = "double"
