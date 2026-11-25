@@ -4,7 +4,13 @@ import pandas as pd
 
 BIO_COLS = [f"bio_{i}" for i in range(1, 20)]
 
-# Kept first when two predictors are correlated: broad, interpretable climate axes.
+# Order of preference: when two predictors are correlated, the earlier one is kept.
+# The first eight are broad, interpretable climate axes. The rest follow, and are usually
+# dropped because they overlap with the earlier ones.
+#
+# WorldClim notes: temperatures are in degrees C and precipitation in mm. A "quarter" is any
+# three consecutive months. bio_3 (isothermality) is bio_2 divided by bio_7, times 100: how
+# large the day-night swing is compared with the summer-winter swing.
 PREFERRED = [
     "bio_1",  # annual mean temperature
     "bio_12",  # annual precipitation
@@ -13,18 +19,18 @@ PREFERRED = [
     "bio_15",  # precipitation seasonality
     "bio_5",  # max temperature of warmest month
     "bio_6",  # min temperature of coldest month
-    "bio_14",  # precipitation of driest month --top 8 ends here confouding
-    "bio_2", # Mean diurnal range: average of the monthly (max temp − min temp)
-    "bio_3", # Isothermality: bio_2 divided by bio_7, times 100 (how much day-night swing matters compared with the summer-winter swing)
-    "bio_7", # Temperature annual range: max temp of the warmest month minus min temp of the coldest month
-    "bio_8", # Mean temperature of the wettest quarter
-    "bio_9", # Mean temperature of the driest quarter
-    "bio_10", # Mean temperature of the warmest quarter
-    "bio_11", # Mean temperature of the coldest quarter
-    "bio_13", # Precipitation of the wettest month
-    "bio_16", # Precipitation of the wettest quarter
-    "bio_18", # Precipitation of the warmest quarter
-    "bio_19", # Precipitation of the coldest quarter
+    "bio_14",  # precipitation of driest month
+    "bio_2",  # mean diurnal range (average monthly max - min temperature)
+    "bio_3",  # isothermality (see note above)
+    "bio_7",  # temperature annual range (warmest month max - coldest month min)
+    "bio_8",  # mean temp of wettest quarter
+    "bio_9",  # mean temp of driest quarter
+    "bio_10",  # mean temp of warmest quarter
+    "bio_11",  # mean temp of coldest quarter
+    "bio_13",  # precipitation of wettest month
+    "bio_16",  # precipitation of wettest quarter
+    "bio_18",  # precipitation of warmest quarter
+    "bio_19",  # precipitation of coldest quarter
 ]
 
 
